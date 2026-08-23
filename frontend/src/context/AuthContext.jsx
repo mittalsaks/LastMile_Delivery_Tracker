@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { loginUser, loginAdmin, registerUser, setupFirstAdmin, googleAuth } from '../api/authApi';
 
 const AuthContext = createContext(null);
@@ -67,6 +67,43 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+  }, []);
+
+  // --- Keep React state in sync with localStorage, always ---
+  //
+  // Without this, `user` in memory can silently drift away from what's in
+  // localStorage:
+  //  1. Same tab: api/client.js clears localStorage on a 401 and fires
+  //     'auth:session-expired'. Without this listener, the page you were on
+  //     keeps rendering as "logged in" (since `user` state is untouched)
+  //     right up until your NEXT click, which then fires an API call with
+  //     no token, gets a fresh 401, and only THEN redirects — looking like
+  //     a random logout with no cause.
+  //  2. Other tabs: logging in/out in one tab changes localStorage, which
+  //     fires the native 'storage' event in every OTHER tab of the same
+  //     origin. Without this, those other tabs never find out and keep
+  //     showing stale logged-in (or logged-out) UI.
+  useEffect(() => {
+    const syncFromStorage = () => {
+      const raw = localStorage.getItem('user');
+      const token = localStorage.getItem('token');
+      if (!token || !raw || raw === 'undefined') {
+        setUser(null);
+        return;
+      }
+      try {
+        setUser(JSON.parse(raw));
+      } catch {
+        setUser(null);
+      }
+    };
+
+    window.addEventListener('auth:session-expired', syncFromStorage);
+    window.addEventListener('storage', syncFromStorage);
+    return () => {
+      window.removeEventListener('auth:session-expired', syncFromStorage);
+      window.removeEventListener('storage', syncFromStorage);
+    };
   }, []);
 
   return (
