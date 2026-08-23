@@ -53,7 +53,17 @@ function buildStatusEmail({ orderId, status, trackingUrl }) {
     body: `Your order status is now "${status}".`,
   };
 
-  const baseUrl = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+  // Strip any trailing slash(es) from CLIENT_ORIGIN. If the env var on
+  // Render/Vercel was set with a trailing "/" (e.g. "https://app.com/"
+  // instead of "https://app.com"), concatenating "/customer/..." on top
+  // produces a double slash ("https://app.com//customer/...") whose path
+  // becomes "//customer/orders/.../tracking" — React Router's
+  // "/customer/orders/:orderId/tracking" route does NOT match that (extra
+  // empty leading segment), so it falls through to the "*" catch-all route,
+  // which then bounces a logged-in customer to /customer/place-order
+  // instead of the tracking page. Stripping the trailing slash here makes
+  // the link correct regardless of how CLIENT_ORIGIN is configured.
+  const baseUrl = (process.env.CLIENT_ORIGIN || "http://localhost:5173").replace(/\/+$/, "");
   const link = trackingUrl || `${baseUrl}/customer/orders/${orderId}/tracking`;
 
   const html = `
