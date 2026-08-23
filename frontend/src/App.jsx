@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
+import CursorFx from './components/CursorFx';
 import AdminLogin from './pages/AdminLogin';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -168,6 +169,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <CursorFx />
         <ChromeNavbar />
         <AppRoutes />
       </AuthProvider>
