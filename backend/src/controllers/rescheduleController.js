@@ -5,7 +5,8 @@ const Order = require('../models/Order');
 const TrackingHistory = require('../models/TrackingHistory');
 const AssignmentHistory = require('../models/AssignmentHistory');
 const { isValidTransition } = require('../utils/statusTransitions');
-const { findBestAgent } = require('../utils/agentAssigner'); // from Part 4
+const { findBestAgent, AssignmentError } = require('../utils/agentAssigner'); // from Part 4
+const { applyAssignment } = require('./assignmentController');
 const { notifyOrderStatus } = require('../utils/notificationService'); // Part 7
 
 /**
@@ -85,6 +86,36 @@ exports.requestReschedule = async (req, res) => {
       note: `Rescheduled from "${fromStatus}" by customer. New attempt date: ${parsedDate.toISOString()}`,
     });
 
+    // --- Auto-reassign on reschedule ---
+    // Best-effort, same pattern as auto-assign-on-creation in orderController:
+    // try to find and assign the best available agent right away instead of
+    // making the customer wait for an admin to click "reassign" manually.
+    // This must NEVER fail the reschedule request — if no agent is available
+    // right now, the order simply stays "Rescheduled"/unassigned and an
+    // admin can still trigger manual/auto reassignment later.
+    let reassignMeta = { autoReassigned: false, reason: null };
+    try {
+      const excludeAgentId = previousAgent ? previousAgent.toString() : undefined;
+      // Redelivery starts from the drop zone, not the original pickup zone.
+      const { agent, usedZoneFallback } = await findBestAgent(order.dropZone, { excludeAgentId });
+      await applyAssignment({
+        order,
+        agent,
+        assignedBy: req.user._id,
+        assignmentType: 'auto-reschedule',
+        notes: usedZoneFallback
+          ? 'Auto-reassigned on reschedule — no agent available in drop zone, assigned from all available agents'
+          : 'Auto-reassigned on reschedule — nearest available agent by drop zone',
+      });
+      reassignMeta = { autoReassigned: true, usedZoneFallback };
+    } catch (assignErr) {
+      reassignMeta = {
+        autoReassigned: false,
+        reason: assignErr instanceof AssignmentError ? assignErr.message : 'Auto-reassignment failed unexpectedly',
+      };
+      console.error(`[requestReschedule] Auto-reassign skipped for order ${order._id}:`, assignErr.message);
+    }
+
     // Part 7: central notification service — creates the Notification record
     // AND attempts the email send in one call.
     await notifyOrderStatus({
@@ -96,8 +127,11 @@ exports.requestReschedule = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Reschedule request recorded. Awaiting agent reassignment.',
+      message: reassignMeta.autoReassigned
+        ? 'Reschedule request recorded and a new agent was auto-assigned.'
+        : 'Reschedule request recorded. No agent could be auto-assigned — an admin can assign one manually.',
       data: order,
+      meta: reassignMeta,
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
