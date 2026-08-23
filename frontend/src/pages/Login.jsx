@@ -9,10 +9,21 @@ const ROLE_HOME = {
   agent: '/agent',
 };
 
+const ROLE_LABELS = {
+  customer: 'Customer',
+  agent: 'Delivery agent',
+};
+
 export default function Login() {
-  const { login, loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Step 1: which role is this login for? null = still on the picker screen.
+  // Admin is handled by navigating straight to the separate /admin/login page —
+  // it's never a tab on this shared form.
+  const [selectedRole, setSelectedRole] = useState(null);
+
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,13 +44,35 @@ export default function Login() {
     }, 900);
   };
 
+  // Guards against logging in as the wrong role from this tab — e.g. picking
+  // "Customer" but entering an agent's credentials. The backend has no way
+  // to know which tab the person meant, so this check happens here: if the
+  // account's real role doesn't match the tab they chose, we immediately
+  // sign them back out instead of letting them into the wrong dashboard.
+  const enforceSelectedRole = (user) => {
+    if (user.role !== selectedRole) {
+      logout();
+      setError(
+        `This account is registered as ${ROLE_LABELS[user.role] || user.role}, not ${
+          ROLE_LABELS[selectedRole] || selectedRole
+        }. Go back and pick the right role.`
+      );
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       const user = await login(form.email, form.password);
-      goHomeFor(user);
+      if (enforceSelectedRole(user)) {
+        goHomeFor(user);
+      } else {
+        setLoading(false);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Check your credentials.');
       setLoading(false);
@@ -50,10 +83,22 @@ export default function Login() {
     setError('');
     try {
       const user = await loginWithGoogle(credential);
-      goHomeFor(user);
+      if (enforceSelectedRole(user)) {
+        goHomeFor(user);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Google sign-in failed. Please try again.');
     }
+  };
+
+  const chooseRole = (role) => {
+    if (role === 'admin') {
+      navigate('/admin/login');
+      return;
+    }
+    setError('');
+    setForm({ email: '', password: '' });
+    setSelectedRole(role);
   };
 
   return (
@@ -61,63 +106,103 @@ export default function Login() {
       <AuthSidePanel />
       <div className="auth-form-side">
         <Link to="/" className="auth-back-link">← Back to home</Link>
-        <form className="auth-card" onSubmit={handleSubmit}>
-          <h1>Log in</h1>
-          <p className="muted">Access your delivery dashboard.</p>
 
-          {error && <div className="alert alert-error">{error}</div>}
+        {!selectedRole && (
+          <div className="auth-card">
+            <h1>Log in</h1>
+            <p className="muted">Choose how you want to log in.</p>
 
-          {loggedInAs && (
-            <div
-              className="alert"
-              style={{
-                background: 'rgba(34,197,94,0.15)',
-                color: '#4ade80',
-                border: '1px solid rgba(34,197,94,0.3)',
+            <div className="role-picker">
+              <button type="button" className="role-option" onClick={() => chooseRole('customer')}>
+                <span className="role-option-title">Customer</span>
+                <span className="role-option-desc">Place and track your orders</span>
+              </button>
+              <button type="button" className="role-option" onClick={() => chooseRole('agent')}>
+                <span className="role-option-title">Delivery agent</span>
+                <span className="role-option-desc">Manage your delivery assignments</span>
+              </button>
+              <button type="button" className="role-option" onClick={() => chooseRole('admin')}>
+                <span className="role-option-title">Admin</span>
+                <span className="role-option-desc">Manage zones, rates, agents &amp; orders</span>
+              </button>
+            </div>
+
+            <p className="muted center">
+              No account? <Link to="/register">Register</Link>
+            </p>
+          </div>
+        )}
+
+        {selectedRole && (
+          <form className="auth-card" onSubmit={handleSubmit}>
+            <button
+              type="button"
+              className="auth-inline-back"
+              onClick={() => {
+                setSelectedRole(null);
+                setError('');
               }}
             >
-              Logged in as <strong style={{ textTransform: 'capitalize' }}>{loggedInAs}</strong> — redirecting…
-            </div>
-          )}
+              ← Change role
+            </button>
+            <h1>Log in as {ROLE_LABELS[selectedRole]}</h1>
+            <p className="muted">Access your delivery dashboard.</p>
 
-          <label>
-            Email
-            <input
-              type="email"
-              required
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
-          </label>
+            {error && <div className="alert alert-error">{error}</div>}
 
-          <label>
-            Password
-            <input
-              type="password"
-              required
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
-          </label>
+            {loggedInAs && (
+              <div
+                className="alert"
+                style={{
+                  background: 'rgba(34,197,94,0.15)',
+                  color: '#4ade80',
+                  border: '1px solid rgba(34,197,94,0.3)',
+                }}
+              >
+                Logged in as <strong style={{ textTransform: 'capitalize' }}>{loggedInAs}</strong> — redirecting…
+              </div>
+            )}
 
-          <p className="muted" style={{ textAlign: 'right', marginTop: '-8px' }}>
-            <Link to="/forgot-password">Forgot password?</Link>
-          </p>
+            <label>
+              Email
+              <input
+                type="email"
+                required
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </label>
 
-          <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? 'Logging in…' : 'Log in'}
-          </button>
+            <label>
+              Password
+              <input
+                type="password"
+                required
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+              />
+            </label>
 
-          <div className="muted center" style={{ margin: '8px 0' }}>or</div>
-          <GoogleSignInButton onCredential={handleGoogleCredential} onError={setError} />
+            <p className="muted" style={{ textAlign: 'right', marginTop: '-8px' }}>
+              <Link to="/forgot-password">Forgot password?</Link>
+            </p>
 
-          <p className="muted center">
-            No account? <Link to="/register">Register</Link>
-          </p>
-          <p className="muted center small">
-            Are you an admin? <Link to="/admin/login">Admin log in</Link>
-          </p>
-        </form>
+            <button className="btn btn-primary" type="submit" disabled={loading}>
+              {loading ? 'Logging in…' : 'Log in'}
+            </button>
+
+            {selectedRole === 'customer' && (
+              <>
+                <div className="muted center" style={{ margin: '8px 0' }}>or</div>
+                <GoogleSignInButton onCredential={handleGoogleCredential} onError={setError} />
+              </>
+            )}
+
+            <p className="muted center">
+              No account? <Link to="/register">Register</Link>
+            </p>
+          </form>
+        )}
       </div>
     </div>
   );

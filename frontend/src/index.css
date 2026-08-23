@@ -412,6 +412,27 @@ input[type="file"] { padding: 8px; font-size: 0.85rem; }
 }
 .auth-back-link:hover { color: #fff; transform: translateX(-3px); }
 
+/* In-card variant — same look as .auth-back-link but positioned inline
+   within the form instead of absolutely over the page (used for "Change
+   role" / "Change account type" back buttons above the role-specific form). */
+.auth-inline-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: 0.2s;
+}
+.auth-inline-back:hover { color: #fff; transform: translateX(-3px); }
+
 .auth-card {
   background: var(--glass);
   border: 1px solid var(--border);
@@ -452,6 +473,37 @@ input[type="file"] { padding: 8px; font-size: 0.85rem; }
   border: 1px solid rgba(248, 113, 113, 0.3);
 }
 .auth-card .btn-primary { margin-top: 4px; }
+
+/* Role picker — used by Login and Register before showing the actual form */
+.role-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0 4px;
+}
+.role-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  transition: 0.18s;
+}
+.role-option:hover {
+  border-color: var(--brand);
+  background: rgba(59, 130, 246, 0.1);
+  transform: translateY(-1px);
+}
+.role-option-title { font-weight: 700; font-size: 0.98rem; color: #fff; }
+.role-option-desc { font-size: 0.82rem; color: var(--text-muted); }
 
 @media (max-width: 720px) {
   .auth-page { grid-template-columns: 1fr; height: auto; min-height: 100vh; overflow: visible; }
