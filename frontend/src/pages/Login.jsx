@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AuthSidePanel from '../components/AuthSidePanel';
 import GoogleSignInButton from '../components/GoogleSignInButton';
@@ -12,15 +12,24 @@ const ROLE_HOME = {
 export default function Login() {
   const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loggedInAs, setLoggedInAs] = useState('');
 
+  // If we got here because a protected route (e.g. an order tracking link
+  // from an email) redirected an unauthenticated visitor, send them back to
+  // that exact page after login instead of always dropping them on the
+  // generic role home page.
+  const redirectTarget = location.state?.from
+    ? location.state.from.pathname + (location.state.from.search || '')
+    : null;
+
   const goHomeFor = (user) => {
     setLoggedInAs(user.role);
     setTimeout(() => {
-      navigate(ROLE_HOME[user.role] || '/');
+      navigate(redirectTarget || ROLE_HOME[user.role] || '/');
     }, 900);
   };
 
