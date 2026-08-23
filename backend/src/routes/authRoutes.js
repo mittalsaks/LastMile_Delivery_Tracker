@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const {
   registerUser,
+  verifyEmailOtp,
+  resendOtp,
   loginUser,
   loginAdmin,
   getProfile,
@@ -22,6 +24,11 @@ const { handleAgentDocuments } = require("../middleware/uploadMiddleware");
 // without this middleware, Express's JSON parser can't read multipart
 // bodies at all and req.body ends up empty for agent signups.
 router.post("/register", handleAgentDocuments, registerUser);
+
+// Step 2 of registration: confirm the emailed OTP (or ask for a new one).
+router.post("/verify-otp", verifyEmailOtp);
+router.post("/resend-otp", resendOtp);
+
 router.post("/login", loginUser);
 router.post("/admin-login", loginAdmin);
 router.get("/me", protect, getProfile);

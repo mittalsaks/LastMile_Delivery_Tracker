@@ -1,6 +1,11 @@
 import client from './client';
 
 export const registerUser = (payload) => client.post('/auth/register', payload).then((r) => r.data);
+
+// Step 2 of registration — confirm the OTP emailed by registerUser.
+export const verifyOtp = (email, otp) => client.post('/auth/verify-otp', { email, otp }).then((r) => r.data);
+export const resendOtp = (email) => client.post('/auth/resend-otp', { email }).then((r) => r.data);
+
 export const loginUser = (payload) => client.post('/auth/login', payload).then((r) => r.data);
 export const loginAdmin = (payload) => client.post('/auth/admin-login', payload).then((r) => r.data);
 export const getProfile = () => client.get('/auth/me').then((r) => r.data);

@@ -3,6 +3,8 @@ const generateToken = require("../utils/generateToken");
 const { sendEmail } = require("../config/mailer");
 const { buildAgentApprovalRequestEmail } = require("../templates/agentApprovalEmailTemplate");
 const { buildResetPasswordEmail } = require("../templates/resetPasswordEmailTemplate");
+const { buildOtpEmail } = require("../templates/otpEmailTemplate");
+const { generateOtp, hashOtp, otpExpiryDate, OTP_EXPIRY_MINUTES, MAX_OTP_ATTEMPTS } = require("../utils/otpService");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 
@@ -46,7 +48,14 @@ const registerUser = async (req, res) => {
 
     const userExists = await User.findOne({ email: email.toLowerCase() });
     if (userExists) {
-      return res.status(400).json({ message: "User with this email already exists" });
+      if (userExists.isEmailVerified) {
+        return res.status(400).json({ message: "User with this email already exists" });
+      }
+      // A previous signup attempt with this email never completed OTP
+      // verification (dummy/typo'd address, or the person just gave up).
+      // Free up the email instead of permanently blocking real registrations —
+      // the unverified leftover is replaced below.
+      await User.deleteOne({ _id: userExists._id });
     }
 
     // Only allow customer/agent self-registration.
@@ -83,6 +92,13 @@ const registerUser = async (req, res) => {
       };
     }
 
+    // 2-step verification: the account is created unverified, an OTP is
+    // emailed to the address given, and no token is issued (and — for
+    // agents — admins are NOT notified yet) until that OTP is confirmed via
+    // /api/auth/verify-otp. This is what stops someone from registering
+    // with a dummy/typo'd email: the account simply never becomes usable.
+    const otp = generateOtp();
+
     const user = await User.create({
       name,
       email,
@@ -91,32 +107,145 @@ const registerUser = async (req, res) => {
       address,
       role: finalRole,
       // Self-registered agents start pending — they cannot log in until an
-      // admin approves them. Customers are unaffected (schema default: approved).
+      // admin approves them (in addition to verifying their email first).
+      // Customers are unaffected (schema default: approved).
       agentStatus: finalRole === "agent" ? "pending" : "approved",
       ...(identityDocuments ? { identityDocuments } : {}),
+      isEmailVerified: false,
+      emailOtp: hashOtp(otp),
+      emailOtpExpires: otpExpiryDate(),
+      emailOtpAttempts: 0,
     });
 
-    // Agents don't get a token yet — they aren't allowed to log in until approved.
-    if (finalRole === "agent") {
+    try {
+      const { subject, html } = buildOtpEmail({ name: user.name, otp, expiresInMinutes: OTP_EXPIRY_MINUTES });
+      await sendEmail({ to: user.email, subject, html });
+    } catch (emailErr) {
+      // Couldn't deliver the OTP at all — don't leave a dead, unverifiable
+      // account sitting on this email address. Roll the registration back
+      // so the person can simply try again.
+      await User.deleteOne({ _id: user._id });
+      console.error("[authController] register OTP email send failed:", emailErr.message);
+      return res.status(502).json({
+        message: "Could not send the verification email. Please check the address and try again.",
+      });
+    }
+
+    return res.status(201).json({
+      email: user.email,
+      role: user.role,
+      needsOtpVerification: true,
+      message: `We've sent a ${otp.length}-digit code to ${user.email}. Enter it to verify your email and finish creating your account.`,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// @desc    Step 2 of registration — confirm the OTP emailed by registerUser
+//          (or resendOtp). On success: customers are logged in immediately;
+//          agents are marked verified and admins are notified to review
+//          their KYC documents (agents still can't log in until approved).
+// @route   POST /api/auth/verify-otp
+// @access  Public
+const verifyEmailOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ message: "Email and OTP are required" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select(
+      "+emailOtp +emailOtpExpires +emailOtpAttempts"
+    );
+
+    if (!user || !user.emailOtp) {
+      return res.status(400).json({ message: "No pending verification found for this email. Please register again." });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(400).json({ message: "This email is already verified. Please log in." });
+    }
+
+    if (!user.emailOtpExpires || user.emailOtpExpires < new Date()) {
+      return res.status(400).json({ message: "This code has expired. Please request a new one." });
+    }
+
+    if (user.emailOtpAttempts >= MAX_OTP_ATTEMPTS) {
+      return res.status(429).json({ message: "Too many incorrect attempts. Please request a new code." });
+    }
+
+    if (hashOtp(otp) !== user.emailOtp) {
+      user.emailOtpAttempts += 1;
+      await user.save();
+      return res.status(400).json({ message: "Incorrect code. Please try again." });
+    }
+
+    user.isEmailVerified = true;
+    user.emailOtp = null;
+    user.emailOtpExpires = null;
+    user.emailOtpAttempts = 0;
+    await user.save();
+
+    if (user.role === "agent") {
       notifyAdminsOfPendingAgent(user); // fire-and-forget, never blocks the response
 
-      return res.status(201).json({
+      return res.status(200).json({
         _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
         agentStatus: user.agentStatus,
-        message: "Registration received. An admin will review your documents before you can log in.",
+        message: "Email verified. An admin will review your documents before you can log in.",
       });
     }
 
-    return res.status(201).json({
+    return res.status(200).json({
       _id: user._id,
       name: user.name,
       email: user.email,
       role: user.role,
       token: generateToken(user._id, user.role),
     });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// @desc    Re-send a fresh OTP to an email that's still mid-registration
+//          (e.g. the first code expired, or the email went to spam).
+// @route   POST /api/auth/resend-otp
+// @access  Public
+const resendOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({ message: "No pending registration found for this email." });
+    }
+    if (user.isEmailVerified) {
+      return res.status(400).json({ message: "This email is already verified. Please log in." });
+    }
+
+    const otp = generateOtp();
+    user.emailOtp = hashOtp(otp);
+    user.emailOtpExpires = otpExpiryDate();
+    user.emailOtpAttempts = 0;
+    await user.save();
+
+    try {
+      const { subject, html } = buildOtpEmail({ name: user.name, otp, expiresInMinutes: OTP_EXPIRY_MINUTES });
+      await sendEmail({ to: user.email, subject, html });
+    } catch (emailErr) {
+      console.error("[authController] resendOtp email send failed:", emailErr.message);
+      return res.status(502).json({ message: "Could not send the verification email. Please try again shortly." });
+    }
+
+    return res.status(200).json({ message: "A new verification code has been sent to your email." });
   } catch (error) {
     return res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -145,6 +274,17 @@ const loginUser = async (req, res) => {
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    // Password correct, but the email OTP step was never completed — this
+    // account can't be used yet. (Google-authenticated accounts are always
+    // isEmailVerified: true, so this never affects them.)
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        message: "Please verify your email before logging in.",
+        needsOtpVerification: true,
+        email: user.email,
+      });
     }
 
     // This is the shared customer/agent login — admins must use /auth/admin-login.
@@ -240,12 +380,15 @@ const createAdminByAdmin = async (req, res) => {
 
     // Role is hard-coded to "admin" here — this endpoint is only reachable by an
     // already-authenticated admin (see authorize("admin") in authRoutes.js).
+    // Staff-provisioned accounts skip the OTP step — the creating admin has
+    // already vouched for the address.
     const user = await User.create({
       name,
       email,
       password,
       phone,
       role: "admin",
+      isEmailVerified: true,
     });
 
     return res.status(201).json({
@@ -286,7 +429,8 @@ const setupFirstAdmin = async (req, res) => {
       return res.status(400).json({ message: "User with this email already exists" });
     }
 
-    const user = await User.create({ name, email, password, phone, role: "admin" });
+    // One-time bootstrap, run before anyone else exists — no OTP needed.
+    const user = await User.create({ name, email, password, phone, role: "admin", isEmailVerified: true });
 
     return res.status(201).json({
       _id: user._id,
@@ -386,6 +530,10 @@ const googleAuth = async (req, res) => {
     // create a brand-new customer account if this Google email is unseen.
     if (user && !user.googleId) {
       user.googleId = googleId;
+      // Google has already verified this address (checked above) — this
+      // also rescues an account stuck mid-OTP-verification, since Google
+      // sign-in is at least as strong a proof of ownership.
+      user.isEmailVerified = true;
       await user.save();
     }
 
@@ -398,6 +546,9 @@ const googleAuth = async (req, res) => {
         email: email.toLowerCase(),
         googleId,
         role: "customer",
+        // Google already verified this address for us (checked above via
+        // emailVerified) — no OTP needed.
+        isEmailVerified: true,
       });
     }
 
@@ -534,6 +685,8 @@ const getCustomersForAdmin = async (req, res) => {
 
 module.exports = {
   registerUser,
+  verifyEmailOtp,
+  resendOtp,
   loginUser,
   loginAdmin,
   getProfile,

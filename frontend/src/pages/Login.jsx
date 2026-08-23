@@ -74,7 +74,14 @@ export default function Login() {
         setLoading(false);
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Check your credentials.');
+      const data = err.response?.data;
+      // Correct password, but the OTP step from registration was never
+      // completed — send them to finish it instead of just showing an error.
+      if (data?.needsOtpVerification) {
+        navigate('/verify-otp', { state: { email: data.email || form.email, message: data.message } });
+        return;
+      }
+      setError(data?.message || 'Login failed. Check your credentials.');
       setLoading(false);
     }
   };

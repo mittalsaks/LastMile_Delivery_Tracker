@@ -47,6 +47,34 @@ const userSchema = new mongoose.Schema(
       default: null,
       select: false,
     },
+    // ---- Email OTP verification (2-step signup) ----
+    // A freshly self-registered (password-based) account starts unverified
+    // and cannot log in until the OTP emailed to it is confirmed. This is
+    // what stops throwaway/typo'd/dummy addresses from ever becoming usable
+    // accounts. Google Sign-In accounts are exempt — Google already
+    // verified that email for us (see googleAuth controller).
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    // All OTP fields are select: false — never leak on a normal find/findById.
+    emailOtp: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    emailOtpExpires: {
+      type: Date,
+      default: null,
+      select: false,
+    },
+    // Wrong-guess counter for the current OTP — resets every time a new OTP
+    // is generated (register/resend). Blocks brute-forcing a 6-digit code.
+    emailOtpAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
     phone: {
       type: String,
       trim: true,

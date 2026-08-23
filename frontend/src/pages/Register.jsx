@@ -28,7 +28,6 @@ export default function Register() {
   const [docs, setDocs] = useState({ aadhaarDoc: null, panDoc: null, drivingLicenseDoc: null });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [pendingMessage, setPendingMessage] = useState('');
 
   const isAgent = selectedRole === 'agent';
 
@@ -38,7 +37,6 @@ export default function Register() {
 
   const chooseRole = (role) => {
     setError('');
-    setPendingMessage('');
     setForm({ name: '', email: '', password: '', role });
     setSelectedRole(role);
   };
@@ -46,7 +44,6 @@ export default function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setPendingMessage('');
 
     if (isAgent) {
       if (!kyc.aadhaarNumber || !kyc.drivingLicenseNumber || !docs.aadhaarDoc || !docs.drivingLicenseDoc) {
@@ -70,16 +67,11 @@ export default function Register() {
 
       const result = await register(payload);
 
-      // Agents come back without a token — they're pending admin approval,
-      // not logged in. Show the message instead of redirecting.
-      if (result.agentStatus === 'pending') {
-        setPendingMessage(
-          result.message ||
-            'Registration received. An admin will review your documents before you can log in.'
-        );
-        setForm({ name: '', email: '', password: '', role: selectedRole });
-        setKyc({ aadhaarNumber: '', panNumber: '', drivingLicenseNumber: '' });
-        setDocs({ aadhaarDoc: null, panDoc: null, drivingLicenseDoc: null });
+      // registerUser no longer logs anyone in directly — it always sends an
+      // OTP first (2-step verification), so hand off to the OTP screen with
+      // the email it needs.
+      if (result.needsOtpVerification) {
+        navigate('/verify-otp', { state: { email: result.email, message: result.message } });
         return;
       }
 
@@ -142,7 +134,6 @@ export default function Register() {
               onClick={() => {
                 setSelectedRole(null);
                 setError('');
-                setPendingMessage('');
               }}
             >
               ← Change account type
@@ -155,19 +146,6 @@ export default function Register() {
             </p>
 
             {error && <div className="alert alert-error">{error}</div>}
-
-            {pendingMessage && (
-              <div
-                className="alert"
-                style={{
-                  background: 'rgba(234,179,8,0.15)',
-                  color: '#eab308',
-                  border: '1px solid rgba(234,179,8,0.3)',
-                }}
-              >
-                {pendingMessage}
-              </div>
-            )}
 
             <label>
               Name

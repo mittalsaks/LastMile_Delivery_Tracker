@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { loginUser, loginAdmin, registerUser, setupFirstAdmin, googleAuth } from '../api/authApi';
+import { loginUser, loginAdmin, registerUser, setupFirstAdmin, googleAuth, verifyOtp, resendOtp } from '../api/authApi';
 
 const AuthContext = createContext(null);
 
@@ -38,9 +38,24 @@ export function AuthProvider({ children }) {
 
   const register = useCallback(async (payload) => {
     const res = await registerUser(payload);
-    // Agents come back without a token (pending approval) — nothing to store yet.
+    // New accounts never get a token here anymore — registerUser only
+    // sends an OTP now (res.needsOtpVerification === true). The caller
+    // (Register.jsx) shows the OTP step and completes the session via
+    // confirmOtp() below once the code is verified.
+    return res;
+  }, []);
+
+  // Step 2 of registration: confirm the OTP. Customers get logged in
+  // immediately (a token comes back); agents come back without one — they
+  // still need admin approval — so nothing to store yet in that case.
+  const confirmOtp = useCallback(async (email, otp) => {
+    const res = await verifyOtp(email, otp);
     if (!res.token) return res;
     return applySession(res);
+  }, []);
+
+  const resendOtpCode = useCallback(async (email) => {
+    return resendOtp(email);
   }, []);
 
   // One-time bootstrap: creates the first admin and logs them in immediately.
@@ -108,7 +123,18 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, login, loginAsAdmin, loginWithGoogle, loginAsAdminWithGoogle, register, bootstrapAdmin, logout }}
+      value={{
+        user,
+        login,
+        loginAsAdmin,
+        loginWithGoogle,
+        loginAsAdminWithGoogle,
+        register,
+        confirmOtp,
+        resendOtpCode,
+        bootstrapAdmin,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

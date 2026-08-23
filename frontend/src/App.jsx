@@ -5,6 +5,7 @@ import Navbar from './components/Navbar';
 import AdminLogin from './pages/AdminLogin';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import VerifyOtp from './pages/VerifyOtp';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import SetupFirstAdmin from './pages/SetupFirstAdmin';
@@ -37,7 +38,7 @@ function Home() {
 // own full-bleed dark chrome, and admin pages render their own sidebar via
 // AdminLayout — so the shared top Navbar should never show on any of those,
 // regardless of whether a stale session is still logged in.
-const NO_NAVBAR_PATHS = ['/', '/login', '/admin/login', '/register', '/setup', '/forgot-password'];
+const NO_NAVBAR_PATHS = ['/', '/login', '/admin/login', '/register', '/verify-otp', '/setup', '/forgot-password'];
 
 function ChromeNavbar() {
   const location = useLocation();
@@ -55,6 +56,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/verify-otp" element={<VerifyOtp />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/setup" element={<SetupFirstAdmin />} />
