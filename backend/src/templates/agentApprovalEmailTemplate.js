@@ -12,6 +12,9 @@ function buildAgentApprovalRequestEmail({ agentName, agentEmail, agentPhone }) {
 
   const html = `
   <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #eee; border-radius: 8px;">
+    <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 16px;">
+      LastMile Tracker
+    </p>
     <h2 style="color: #1a1a1a; margin-bottom: 4px;">New delivery agent awaiting approval</h2>
     <p style="color: #333; font-size: 15px; line-height: 1.5;">
       <strong>${agentName}</strong> just registered as a delivery agent and submitted their
@@ -48,6 +51,9 @@ function buildAgentDecisionEmail({ decision, reason }) {
 
   const html = `
   <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #eee; border-radius: 8px;">
+    <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 16px;">
+      LastMile Tracker
+    </p>
     <h2 style="color: #1a1a1a; margin-bottom: 4px;">${heading}</h2>
     <p style="color: #333; font-size: 15px; line-height: 1.5;">${body}</p>
     ${

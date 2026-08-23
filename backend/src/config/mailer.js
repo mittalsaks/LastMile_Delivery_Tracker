@@ -58,8 +58,17 @@ async function sendEmail({ to, subject, html }) {
     throw new Error("GMAIL_API_SENDER_EMAIL is not set — cannot send email");
   }
 
+  // Display name shown to the recipient instead of the raw gmail.com
+  // address (e.g. "LastMile Tracker" instead of "project3649@gmail.com").
+  // This does NOT need any extra verification in Google Cloud Console —
+  // it's just the human-readable part of the RFC 5322 From header, and
+  // Gmail lets you set it freely for the account you're authenticated as.
+  // Falls back to the plain address if the name isn't set.
+  const senderName = process.env.GMAIL_API_SENDER_NAME;
+  const from = senderName ? `"${senderName}" <${sender}>` : sender;
+
   const accessToken = await getAccessToken();
-  const raw = toBase64Url(buildRawMessage({ from: sender, to, subject, html }));
+  const raw = toBase64Url(buildRawMessage({ from, to, subject, html }));
 
   const res = await fetch(SEND_URL, {
     method: "POST",

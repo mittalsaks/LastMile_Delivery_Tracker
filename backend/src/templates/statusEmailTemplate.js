@@ -68,6 +68,9 @@ function buildStatusEmail({ orderId, status, trackingUrl }) {
 
   const html = `
   <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #eee; border-radius: 8px;">
+    <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 16px;">
+      LastMile Tracker
+    </p>
     <h2 style="color: #1a1a1a; margin-bottom: 4px;">${copy.heading}</h2>
     <p style="color: #555; font-size: 14px; margin-top: 0;">Order ID: <strong>${orderId}</strong></p>
     <p style="color: #333; font-size: 15px; line-height: 1.5;">${copy.body}</p>
