@@ -17,7 +17,7 @@
 <br/>
 
 <p align="center">
-  <img src="docs/screenshots/01-landing.png" width="850" alt="LastMile Tracker landing page" />
+  <img src="docs/screenshots/00-landing.png" width="850" alt="LastMile Tracker landing page" />
 </p>
 
 ---
@@ -26,16 +26,16 @@
 
 - [What this is](#-what-this-is)
 - [Roles & Features](#-roles--features)
-- [How a Charge Gets Calculated](#-how-a-charge-gets-calculated)
-- [Product Walkthrough (Screenshots)](#️-product-walkthrough-screenshots)
 - [Architecture](#-architecture)
+- [How a Charge Gets Calculated](#-how-a-charge-gets-calculated)
+- [Order Status Lifecycle](#-order-status-lifecycle)
+- [Product Walkthrough](#-product-walkthrough)
 - [Tech Stack](#-tech-stack)
 - [Project Structure](#-project-structure)
 - [Getting Started](#-getting-started)
 - [Environment Variables](#-environment-variables)
 - [Database Schema](#-database-schema)
 - [API Reference](#-api-reference)
-- [Order Status Lifecycle](#-order-status-lifecycle)
 - [Deployment](#-deployment)
 - [Live Demo](#-live-demo)
 
@@ -45,20 +45,7 @@
 
 Logistics platforms need three things to actually work in production: **pricing that isn't hardcoded**, **agent assignment that scales**, and **a tracking history nobody can quietly edit**. LastMile Tracker is built around exactly those three ideas.
 
-There are three roles — **Customer**, **Delivery Agent**, and **Admin** — each with a dedicated dashboard behind JWT-based, role-scoped auth.
-
-When an order is created, the backend:
-
-1. **Detects the pickup and drop zone** for each address (by pincode, falling back to area name).
-2. **Calculates volumetric weight** — `(L × B × H) / 5000`.
-3. **Bills on the higher of actual vs. volumetric weight** — the standard courier-industry rule.
-4. **Looks up the correct rate card** — B2B vs. B2C, and intra-zone vs. inter-zone are priced independently.
-5. **Adds a COD surcharge** if the payment type is Cash on Delivery (flat or percentage, configurable per order type).
-6. **Shows the full charge breakdown before the customer confirms** — the same calculation function prices both the preview and the actual order, so what you see is what you pay.
-
-Nothing above is hardcoded. Zones, rate cards, and COD configs are all managed live from the Admin dashboard — pricing changes need zero deployments.
-
-Once placed, an order can be **manually assigned** by the admin or **auto-assigned** to the least-busy available agent in the pickup zone. The agent then drives the order through its status lifecycle, the customer gets an **email and SMS at every step**, and if a delivery fails, the customer can request a **reschedule** — which reassigns a fresh agent and re-enters the exact same tracked flow, not a special-cased shortcut.
+There are three roles — **Customer**, **Delivery Agent**, and **Admin** — each with a dedicated dashboard behind JWT-based, role-scoped auth. Zones, rate cards, and COD surcharges are all configured live from the Admin dashboard, so pricing can change without a single deployment — and every order's journey from `Created` to `Delivered` (or `Failed` → `Rescheduled`) is logged as an append-only, immutable timeline.
 
 ---
 
@@ -68,29 +55,29 @@ Once placed, an order can be **manually assigned** by the admin or **auto-assign
 <tr><td width="33%" valign="top">
 
 ### 🧑 Customer
-- Register with email OTP verification, or sign in with Google
-- Live charge preview before confirming an order
+- Register with email OTP, or sign in with Google
+- Live charge preview before confirming
 - Place orders — Prepaid or COD
-- Track every order on a full status timeline
-- Request a reschedule after a failed delivery
+- Full status timeline per order
+- Request reschedule after a failed delivery
 - Rate & review after delivery
 
 </td><td width="33%" valign="top">
 
 ### 🚴 Delivery Agent
-- Register with KYC (Aadhaar / Driving License / PAN) — reviewed by an admin before login is allowed
-- View orders assigned to them
-- Update status: Picked Up → In Transit → Out for Delivery → Delivered / Failed
-- Toggle their own availability & set their zone
+- Register with KYC (Aadhaar / License / PAN)
+- Admin-approved before login is allowed
+- View assigned deliveries
+- Update status step-by-step
+- Toggle own availability & zone
 
 </td><td width="33%" valign="top">
 
 ### 🛠️ Admin
-- Configure **zones**, mapping pincodes/areas to each
-- Configure **rate cards** (B2B/B2C × intra/inter) and **COD surcharges** — no code changes needed
-- Place orders on a customer's behalf
-- View, filter (status/zone/agent), reassign, and override any order
-- Approve/reject agent KYC submissions
+- Configure **zones**, **rate cards**, **COD surcharges**
+- Create orders on a customer's behalf
+- Filter, reassign, and override any order
+- Approve/reject agent KYC
 - Manage all users; add other admins
 
 </td></tr>
@@ -98,159 +85,198 @@ Once placed, an order can be **manually assigned** by the admin or **auto-assign
 
 ---
 
-## 💰 How a Charge Gets Calculated
+## 🏗️ Architecture
 
-```
-             ┌────────────────────┐
-  addresses  │   Zone Detection    │   pincode match → area-name fallback
- ───────────▶│  (pickup + drop)     │
-             └──────────┬──────────┘
-                        │
-             ┌──────────▼──────────┐
- dimensions  │  Volumetric Weight   │   (L × B × H) / 5000
- ───────────▶│                      │
-             └──────────┬──────────┘
-                        │
-             ┌──────────▼──────────┐
-             │  Chargeable Weight   │   max(actual, volumetric)
-             └──────────┬──────────┘
-                        │
-             ┌──────────▼──────────┐
- orderType   │  Rate Card Lookup    │   B2B/B2C × intra/inter × zone pair
- ───────────▶│                      │   → baseRate + (weight × ratePerKg)
-             └──────────┬──────────┘
-                        │
-             ┌──────────▼──────────┐
- paymentType │   COD Surcharge      │   flat ₹ or % — only if COD
- ───────────▶│  (if applicable)     │
-             └──────────┬──────────┘
-                        │
-                 ┌──────▼──────┐
-                 │ Total Charge │ ── shown to customer before confirm
-                 └─────────────┘
+```mermaid
+flowchart LR
+    classDef client fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0
+    classDef api fill:#0f172a,stroke:#a78bfa,stroke-width:2px,color:#e2e8f0
+    classDef util fill:#0f172a,stroke:#fbbf24,stroke-width:2px,color:#e2e8f0
+    classDef db fill:#0f172a,stroke:#34d399,stroke-width:2px,color:#e2e8f0
+
+    FE["🖥️ React (Vite)<br/>role-aware routing"]:::client
+
+    subgraph Backend [" ⚙️ Express REST API — Node.js "]
+        direction TB
+        API["JWT + role<br/>middleware guard"]:::api
+        RC["💰 rateCalculator<br/><sub>pricing engine</sub>"]:::util
+        AA["🧭 agentAssigner<br/><sub>zone + workload</sub>"]:::util
+        NS["🔔 notificationService<br/><sub>email + SMS</sub>"]:::util
+        API --> RC & AA & NS
+    end
+
+    DB[("🗄️ MongoDB Atlas")]:::db
+
+    FE == "HTTPS / JWT" ==> API
+    API == "JSON response" ==> FE
+    API == "Mongoose ODM" ==> DB
+    DB == "documents" ==> API
 ```
 
-This entire pipeline is one function — `backend/src/utils/rateCalculator.js` — called by both the `/calculate-charge` preview endpoint and the real order-creation endpoint, so there's no second implementation that can silently drift out of sync.
+- **Frontend** — role-aware routing (`ProtectedRoute`), separate page trees per role, one Axios client per resource.
+- **Backend** — layered `routes → controllers → utils/models`, every protected route behind JWT + role middleware.
+- **rateCalculator & agentAssigner** — pure, reusable modules, not duplicated per controller — one source of truth each.
+- **TrackingHistory** — append-only by schema design, not convention: Mongoose hooks block update/delete outright.
 
 ---
 
-## 🖼️ Product Walkthrough (Screenshots)
+## 💰 How a Charge Gets Calculated
 
-### Admin — configuring the business rules
+```mermaid
+flowchart TD
+    classDef input fill:#0f172a,stroke:#38bdf8,color:#e2e8f0,stroke-width:2px
+    classDef stage fill:#0f172a,stroke:#a78bfa,color:#e2e8f0,stroke-width:2px
+    classDef result fill:#065f46,stroke:#10b981,color:#ffffff,stroke-width:2px
 
-Zones, rate cards, and COD surcharges are all admin-managed — this is what makes the rate engine "no hardcoding" in practice, not just in theory.
+    A(["📍 Pickup + Drop Address"]):::input --> B["🗺️ Zone Detection<br/><sub>pincode → area-name fallback</sub>"]:::stage
+    D(["📦 L × B × H + Actual Weight"]):::input --> E["⚖️ Volumetric Weight<br/><sub>(L × B × H) / 5000</sub>"]:::stage
+    B --> F["🏋️ Chargeable Weight<br/><sub>max(actual, volumetric)</sub>"]:::stage
+    E --> F
+    G(["🏷️ Order Type — B2B / B2C"]):::input --> H["📋 Rate Card Lookup<br/><sub>intra/inter × zone pair</sub>"]:::stage
+    F --> H
+    I(["💳 Payment Type"]):::input --> J["➕ COD Surcharge<br/><sub>flat ₹ or % — only if COD</sub>"]:::stage
+    H --> J
+    J --> K(["✅ Total Charge<br/>shown before customer confirms"]):::result
+```
+
+One function — `backend/src/utils/rateCalculator.js` — powers both the `/calculate-charge` preview and real order creation, so the price previewed is guaranteed to be the price charged. Nothing here is hardcoded: every rate, base fee, and surcharge is admin-configurable at runtime. Full reasoning in [`SYSTEM_DESIGN.md`](./SYSTEM_DESIGN.md#1-rate-calculation-engine).
+
+---
+
+## 🔄 Order Status Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created
+    Created --> PickedUp: agent assigned
+    PickedUp --> InTransit
+    InTransit --> OutForDelivery
+    OutForDelivery --> Delivered: 🎉 success
+    OutForDelivery --> Failed: ⚠️ delivery failed
+    Failed --> Rescheduled: customer requests reschedule
+    Rescheduled --> PickedUp: fresh agent assigned
+    Delivered --> [*]
+
+    classDef success fill:#065f46,stroke:#10b981,color:#ffffff
+    classDef fail fill:#7f1d1d,stroke:#ef4444,color:#ffffff
+    class Delivered success
+    class Failed,Rescheduled fail
+```
+
+Enforced centrally in `backend/src/utils/statusTransitions.js` — every move is validated against this map, so an order can never jump straight from `Created` to `Delivered`. `Delivered` is the only true terminal state. **Every transition writes a new, immutable `TrackingHistory` entry** (status + actor + timestamp) and fires an email + SMS to the customer. Admins can bypass the map via an override-status endpoint for manual corrections. A rescheduled order re-enters at `PickedUp` and goes through the *exact same* tracked flow as a first attempt — full reasoning in [`SYSTEM_DESIGN.md`](./SYSTEM_DESIGN.md#4-failed-delivery--reschedule).
+
+---
+
+## 🖼️ Product Walkthrough
+
+### 1️⃣ Sign Up & Onboarding
+
+Every user starts here — pick a role, register, verify. Agents additionally submit KYC and wait for admin approval before they can log in.
 
 <table>
 <tr>
 <td width="50%">
 
-**Zones** — pincode + area coverage per zone
-<img src="docs/screenshots/03-admin-zones.png" width="100%" alt="Admin zones configuration" />
+**Choose account type**
+<img src="docs/screenshots/01-auth-choose-role.png" width="100%" alt="Choose account type" />
+</td>
+<td width="50%">
+
+**Customer registration**
+<img src="docs/screenshots/02-auth-customer-register.png" width="100%" alt="Customer registration" />
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Delivery agent KYC registration**
+<img src="docs/screenshots/03-auth-agent-kyc-register.png" width="100%" alt="Agent KYC registration" />
+</td>
+<td width="50%">
+
+**Email OTP verification**
+<img src="docs/screenshots/04-auth-otp-verify.png" width="100%" alt="Email OTP verification" />
+</td>
+</tr>
+</table>
+
+### 2️⃣ Admin — Configuring the Business Rules
+
+This is what makes the rate engine "no hardcoding" in practice: zones, pricing, and COD surcharges are all managed here, live.
+
+<table>
+<tr>
+<td width="50%">
+
+**Zones** — pincode + area coverage
+<img src="docs/screenshots/05-admin-zones.png" width="100%" alt="Admin zones" />
 </td>
 <td width="50%">
 
 **Rate Cards** — B2B/B2C, intra/inter pricing
-<img src="docs/screenshots/04-admin-ratecards.png" width="100%" alt="Admin rate cards" />
+<img src="docs/screenshots/06-admin-ratecards.png" width="100%" alt="Admin rate cards" />
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-**COD Surcharge Config** — flat ₹ or % per order type
-<img src="docs/screenshots/05-admin-codconfig.png" width="100%" alt="Admin COD config" />
+**COD Surcharge Config**
+<img src="docs/screenshots/07-admin-codconfig.png" width="100%" alt="Admin COD config" />
 </td>
 <td width="50%">
 
-**Agent KYC Approvals** — manual review, always required
-<img src="docs/screenshots/06-admin-agent-approvals.png" width="100%" alt="Admin agent approvals" />
+**Agent KYC Approvals** — always a manual decision
+<img src="docs/screenshots/08-admin-agent-approvals.png" width="100%" alt="Admin agent approvals" />
 </td>
 </tr>
 </table>
 
-### Placing an order & seeing the rate engine work
+### 3️⃣ Admin — Running Day-to-Day Operations
 
-<img src="docs/screenshots/07-admin-create-order-charge.png" width="850" alt="Admin creating an order with live charge summary" />
+<img src="docs/screenshots/09-admin-create-order-charge.png" width="850" alt="Admin creating an order with live charge summary" />
+<p align="center"><em>Creating an order on a customer's behalf — the charge summary calculates live, before confirmation.</em></p>
 
-<p align="center"><em>Live charge summary — base rate, weight charge, and total — calculated the moment the form is filled, before the order is confirmed.</em></p>
+<img src="docs/screenshots/10-admin-all-orders.png" width="850" alt="Admin all orders dashboard" />
+<p align="center"><em>Every order in one control tower — filter by status/zone/agent, reassign, or override status directly.</em></p>
+
+### 4️⃣ Delivery Agent
+
+<img src="docs/screenshots/11-agent-dashboard.png" width="850" alt="Agent dashboard" />
+<p align="center"><em>Agents toggle their own availability and zone, and move each delivery through its status steps.</em></p>
+
+### 5️⃣ Customer
 
 <table>
 <tr>
 <td width="50%">
 
-**Customer placing their own order**
-<img src="docs/screenshots/08-customer-place-order.png" width="100%" alt="Customer place order" />
+**Placing an order**
+<img src="docs/screenshots/12-customer-place-order.png" width="100%" alt="Customer place order" />
 </td>
 <td width="50%">
 
 **Order history + post-delivery feedback**
-<img src="docs/screenshots/09-customer-my-orders-feedback.png" width="100%" alt="Customer orders and feedback" />
+<img src="docs/screenshots/13-customer-my-orders-feedback.png" width="100%" alt="Customer orders and feedback" />
 </td>
 </tr>
 </table>
 
-### Agent assignment & the admin control tower
-
-<table>
-<tr>
-<td width="50%">
-
-**Agent dashboard** — availability toggle & assigned deliveries
-<img src="docs/screenshots/10-agent-dashboard.png" width="100%" alt="Agent dashboard" />
-</td>
-<td width="50%">
-
-**Admin — all orders**, with reassign & status override
-<img src="docs/screenshots/11-admin-all-orders.png" width="100%" alt="Admin all orders" />
-</td>
-</tr>
-</table>
-
-### Notifications on every status change
+### 6️⃣ Notifications — Fired on Every Status Change
 
 <table>
 <tr>
 <td width="50%">
 
 **Email**
-<img src="docs/screenshots/12-email-notification.png" width="100%" alt="Email notification" />
+<img src="docs/screenshots/14-email-notification.png" width="100%" alt="Email notification" />
 </td>
 <td width="50%">
 
 **SMS**
-<img src="docs/screenshots/13-sms-notification.png" width="100%" alt="SMS notification" />
+<img src="docs/screenshots/15-sms-notification.png" width="100%" alt="SMS notification" />
 </td>
 </tr>
 </table>
-
-### Agent onboarding (KYC)
-
-<img src="docs/screenshots/02-agent-kyc-register.png" width="850" alt="Delivery agent registration with KYC documents" />
-
-<p align="center"><em>Agents submit Aadhaar, Driving License, and (optionally) PAN at signup — their account can't log in until an admin manually approves it.</em></p>
-
----
-
-## 🏗️ Architecture
-
-```
-┌──────────────────┐      HTTPS / JWT      ┌───────────────────┐      Mongoose      ┌─────────────┐
-│   React (Vite)    │ ────────────────────▶ │   Express REST API  │ ─────────────────▶ │  MongoDB     │
-│   Frontend         │ ◀──────────────────── │   (Node.js)          │ ◀───────────────── │  (Atlas)     │
-└──────────────────┘                       └─────────┬─────────┘                    └─────────────┘
-                                                       │
-                                    ┌──────────────────┼──────────────────┐
-                                    ▼                  ▼                  ▼
-                          ┌──────────────┐   ┌──────────────────┐  ┌──────────────┐
-                          │ rateCalculator │   │  agentAssigner    │  │ notification  │
-                          │  (pricing)     │   │  (zone + workload)│  │  (email + SMS)│
-                          └──────────────┘   └──────────────────┘  └──────────────┘
-```
-
-- **Frontend (React + Vite)** — role-aware routing (`ProtectedRoute`), separate page trees for customer/agent/admin, Axios API clients per resource.
-- **Backend (Express)** — layered as routes → controllers → utils/models, with JWT auth + role middleware guarding every protected route.
-- **Rate Calculator & Agent Assigner** — pure, reusable utility modules (not duplicated per controller) so pricing and assignment logic each have exactly one source of truth.
-- **TrackingHistory** — append-only by schema design (see [Database Schema](#-database-schema)); it's not just convention, updates/deletes are blocked in Mongoose hooks.
-- **Notifications** — Nodemailer (Gmail OAuth2) for email, plus an SMS service hook, fired on every status transition.
 
 ---
 
@@ -372,16 +398,65 @@ Full, commented templates live in `backend/.env.example` and `frontend/.env.exam
 
 ## 🗄️ Database Schema
 
+```mermaid
+erDiagram
+    USER ||--o{ ORDER : places
+    USER ||--o{ ORDER : "delivers (agent)"
+    USER ||--o{ FEEDBACK : writes
+    ZONE ||--o{ RATECARD : "priced by"
+    ORDER ||--|| RATECARD : uses
+    ORDER ||--o{ TRACKINGHISTORY : logs
+    ORDER ||--o{ ASSIGNMENTHISTORY : logs
+    ORDER ||--o| FEEDBACK : receives
+    ORDER ||--o{ NOTIFICATION : triggers
+
+    USER {
+        string role "customer / agent / admin"
+        string agentStatus "pending / approved / rejected"
+        object agentDetails "zone, availability, lastAssignedAt"
+    }
+    ZONE {
+        string name
+        array pincodes
+        array areas
+    }
+    RATECARD {
+        string orderType "B2B / B2C"
+        string rateType "intra / inter"
+        number baseRate
+        number ratePerKg
+    }
+    CODCONFIG {
+        string orderType
+        string surchargeType "flat / percentage"
+        number value
+    }
+    ORDER {
+        object pickupAddress
+        object dropAddress
+        number volumetricWeight
+        number chargeableWeight
+        object charge
+        string status
+        ref assignedAgent
+    }
+    TRACKINGHISTORY {
+        string status
+        ref actor
+        date timestamp
+    }
+```
+
 | Collection | Purpose |
 |---|---|
-| **User** | Customers, agents, and admins in one collection, distinguished by `role`. Agents additionally carry `agentStatus` (pending/approved/rejected), KYC document paths, and `agentDetails` (current zone, availability, `lastAssignedAt` — used for fair auto-assignment). |
+| **User** | Customers, agents, and admins in one collection, distinguished by `role`. Agents additionally carry `agentStatus`, KYC document paths, and `agentDetails` (zone, availability, `lastAssignedAt` — used for fair auto-assignment). |
 | **Zone** | A named service area, matched to orders via `pincodes` and/or `areas`. |
-| **RateCard** | One row per `orderType` (B2B/B2C) × `rateType` (intra/inter) × zone pair, holding `baseRate` and `ratePerKg`. Unique-indexed to prevent duplicates. |
-| **CODConfig** | One row per `orderType`, holding a `surchargeType` (flat/percentage) and `value`. |
-| **Order** | The core record — addresses, package dimensions, computed `volumetricWeight` / `chargeableWeight`, `rateCardUsed`, full `charge` breakdown, current `status`, `assignedAgent`, and a `reschedule` sub-document. |
-| **TrackingHistory** | Append-only — one document per status change (status + actor + timestamp). Mongoose hooks block any update/delete, enforcing immutability at the schema level. |
+| **RateCard** | One row per `orderType` × `rateType` × zone pair, holding `baseRate` and `ratePerKg`. Unique-indexed to prevent duplicates. |
+| **CODConfig** | One row per `orderType`, holding a `surchargeType` and `value`. |
+| **Order** | The core record — addresses, dimensions, computed weights, `rateCardUsed`, full `charge` breakdown, `status`, `assignedAgent`, and a `reschedule` sub-document. |
+| **TrackingHistory** | Append-only — one document per status change. Mongoose hooks block update/delete, enforcing immutability at the schema level. |
 | **AssignmentHistory** | Log of agent assignment/reassignment events per order. |
-| **Feedback** | Post-delivery customer rating + comment per order. |
+| **Feedback** | Post-delivery customer rating + comment. |
 | **Notification** | Record of notifications sent for an order. |
 
 ---
@@ -489,19 +564,6 @@ Base URL: `/api`. All routes except registration/login/first-admin-setup require
 | GET | `/` | Admin | Browse agents (e.g. for manual-assignment dropdown) |
 
 </details>
-
----
-
-## 🔄 Order Status Lifecycle
-
-```
-Created → Picked Up → In Transit → Out for Delivery → Delivered
-                                                       ↘ Failed → Rescheduled → Picked Up (re-enters the flow)
-```
-
-Enforced centrally in `backend/src/utils/statusTransitions.js` — every forward move is validated against this map, so an order can't jump straight from `Created` to `Delivered`. `Delivered` is the only true terminal state. Every transition writes a new, **immutable** `TrackingHistory` entry (status + actor + timestamp) and fires an email + SMS to the customer. Admins can bypass the map via the override-status endpoint for manual corrections.
-
-On `Failed`, the customer can submit a reschedule request with a new date; the order moves to `Rescheduled`, a fresh agent is assigned (excluding the one who failed), and once picked up it re-enters the normal lifecycle with full tracking rigor — not a special-cased shortcut.
 
 ---
 
