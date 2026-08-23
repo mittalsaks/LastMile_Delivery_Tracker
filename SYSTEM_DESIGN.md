@@ -1,5 +1,7 @@
 # System Design Write-Up
 
+This document covers the four areas called out for review: the rate calculation engine, the zone detection approach, the agent auto-assignment logic, and failed-delivery handling. It complements [`README.md`](./README.md), which has the full API/schema reference — this is the "why it's built this way" companion.
+
 ## Rate Calculation Engine
 
 The rate engine lives in a single module (`utils/rateCalculator.js`) and is shared by two endpoints: `calculate-charge` (the pre-confirmation preview) and `create order`. Sharing one function guarantees the price a customer previews is exactly the price they're charged — there's no second implementation to drift out of sync.
