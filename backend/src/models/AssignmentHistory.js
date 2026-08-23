@@ -23,7 +23,7 @@ const assignmentHistorySchema = new mongoose.Schema(
     },
     assignmentType: {
       type: String,
-      enum: ["manual", "auto"],
+      enum: ["manual", "auto", "manual-reschedule", "auto-reschedule"],
       required: [true, "assignmentType is required"],
     },
     notes: {

@@ -5,3 +5,8 @@ backend/.env
 frontend/.env
 backend/uploads/
 .DS_Store
+dist/
+.next/
+out/
+.vscode/
+.idea/

@@ -82,8 +82,7 @@ exports.requestReschedule = async (req, res) => {
       order: order._id,
       status: 'Rescheduled',
       changedBy: req.user._id,
-      timestamp: new Date(),
-      note: `Rescheduled from "${fromStatus}" by customer. New attempt date: ${parsedDate.toISOString()}`,
+      notes: `Rescheduled from "${fromStatus}" by customer. New attempt date: ${parsedDate.toISOString()}`,
     });
 
     // --- Auto-reassign on reschedule ---
@@ -200,7 +199,6 @@ exports.reassignForReschedule = async (req, res) => {
       agent: newAgent,
       assignedBy: req.user._id,
       assignmentType: mode === 'manual' ? 'manual-reschedule' : 'auto-reschedule',
-      timestamp: new Date(),
     });
 
     // Bump lastAssignedAt on the agent, consistent with Part 4 ranking logic
