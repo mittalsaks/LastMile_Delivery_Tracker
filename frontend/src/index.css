@@ -40,26 +40,7 @@ body {
   position: relative;
 }
 
-/* ambient app-wide background: soft glow + grain, fixed so it never scrolls away */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  pointer-events: none;
-  background:
-    radial-gradient(600px 500px at 90% -10%, rgba(59, 130, 246, 0.16), transparent 60%),
-    radial-gradient(500px 400px at -10% 100%, rgba(74, 222, 128, 0.12), transparent 60%);
-}
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 26px 26px;
-}
+/* flat solid background — translucent aurora/grain layers removed per feedback */
 
 h1, h2 { margin: 0 0 12px; font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; color: #fff; }
 h1 { font-size: 1.6rem; }
@@ -161,18 +142,97 @@ h2 { font-size: 1.15rem; }
    CARD / FORM
    ================================================================== */
 .card {
-  background: var(--glass);
+  position: relative;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 22px;
+  padding: 24px 24px 22px;
   margin-bottom: 20px;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(14px);
   box-shadow: 0 20px 45px -30px rgba(0, 0, 0, 0.8);
-  transition: border-color 0.2s, transform 0.2s;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  overflow: hidden;
 }
-.form-grid { display: flex; flex-direction: column; gap: 16px; }
-fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin: 0; }
-legend { padding: 0 6px; font-size: 0.85rem; font-weight: 700; color: var(--text-muted); }
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand), var(--success), var(--purple));
+  opacity: 0.85;
+}
+.card:hover { border-color: var(--border-strong); box-shadow: 0 26px 55px -28px rgba(0, 0, 0, 0.85); }
+.card, .admin-stat-card, .landing-feature-card {
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s ease;
+}
+.card:hover, .admin-stat-card:hover, .landing-feature-card:hover { transform: translateY(-2px); }
+/* soft static highlight (pure CSS, no JS tracking — cheap and lag-free) */
+.card::after, .landing-feature-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  background: radial-gradient(360px circle at 15% 0%, rgba(255, 255, 255, 0.08), transparent 60%);
+}
+.card:hover::after, .landing-feature-card:hover::after { opacity: 1; }
+.card > * { position: relative; z-index: 1; }
+.form-grid { display: flex; flex-direction: column; gap: 18px; }
+
+/* fieldsets — each section gets its own soft-tinted glass surface + a
+   colored accent dot on the legend so a form of several sections reads as
+   distinct, colorful "steps" instead of one flat grey block. Colors cycle
+   through the palette in source order. */
+fieldset {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px 18px;
+  margin: 0;
+  background: rgba(255, 255, 255, 0.025);
+  transition: 0.2s;
+}
+fieldset:hover, fieldset:focus-within {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+}
+fieldset:focus-within { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12); }
+.form-grid fieldset:nth-of-type(6n+1) { border-left: 3px solid var(--brand); }
+.form-grid fieldset:nth-of-type(6n+2) { border-left: 3px solid var(--success); }
+.form-grid fieldset:nth-of-type(6n+3) { border-left: 3px solid var(--purple); }
+.form-grid fieldset:nth-of-type(6n+4) { border-left: 3px solid var(--amber); }
+.form-grid fieldset:nth-of-type(6n+5) { border-left: 3px solid #fb923c; }
+.form-grid fieldset:nth-of-type(6n+6) { border-left: 3px solid #f472b6; }
+
+legend {
+  padding: 0 8px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #fff;
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+legend::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  flex-shrink: 0;
+}
+.form-grid fieldset:nth-of-type(6n+1) legend { color: var(--brand-light); }
+.form-grid fieldset:nth-of-type(6n+2) legend { color: #86efac; }
+.form-grid fieldset:nth-of-type(6n+3) legend { color: var(--purple); }
+.form-grid fieldset:nth-of-type(6n+4) legend { color: var(--amber); }
+.form-grid fieldset:nth-of-type(6n+5) legend { color: #fb923c; }
+.form-grid fieldset:nth-of-type(6n+6) legend { color: #f472b6; }
+
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .row > label { flex: 1; min-width: 140px; }
 
@@ -180,21 +240,30 @@ label {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   color: var(--text-muted);
+  margin-top: 12px;
 }
+label:first-of-type { margin-top: 0; }
 input, select {
   font-family: inherit;
   font-size: 0.95rem;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
+  padding: 11px 13px;
+  border: 1px solid rgba(147, 197, 253, 0.16);
+  border-bottom: 2px solid rgba(59, 130, 246, 0.35);
   border-radius: 10px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.035);
+  background: linear-gradient(165deg, rgba(59, 130, 246, 0.09), rgba(167, 139, 250, 0.05) 55%, rgba(255,255,255,0.015));
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
   transition: 0.18s;
+}
+input:hover, select:hover {
+  border-color: rgba(147, 197, 253, 0.32);
+  border-bottom-color: rgba(59, 130, 246, 0.55);
+  background: linear-gradient(165deg, rgba(59, 130, 246, 0.13), rgba(167, 139, 250, 0.07) 55%, rgba(255,255,255,0.02));
 }
 /* Chrome/Edge/Firefox always render a NATIVE <select> dropdown's open list
    with a white/system background — that part can't be re-themed with CSS.
@@ -608,27 +677,42 @@ input[type="file"] { padding: 8px; font-size: 0.85rem; }
 .table thead { display: table-header-group; }
 .table th {
   text-align: left;
-  padding: 8px 16px;
-  font-size: 0.72rem;
+  padding: 10px 16px;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
   color: var(--text-muted);
-  font-weight: 700;
+  font-weight: 800;
   border: none;
 }
 .table td {
   text-align: left;
-  padding: 14px 16px;
+  padding: 15px 16px;
   font-size: 0.88rem;
   border: none;
-  background: var(--glass);
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.table td:first-child { border-left: 1px solid var(--border); border-radius: 12px 0 0 12px; font-weight: 700; }
+.table td:first-child {
+  border-left: 3px solid var(--brand);
+  border-radius: 12px 0 0 12px;
+  font-weight: 800;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+}
 .table td:last-child { border-right: 1px solid var(--border); border-radius: 0 12px 12px 0; }
 .table tr { transition: 0.2s; animation: rowSlideIn 0.45s ease backwards; }
-.table tbody tr:hover td { background: rgba(59, 130, 246, 0.07); border-color: rgba(59, 130, 246, 0.28); }
+.table tbody tr:nth-child(4n+1) td:first-child { border-left-color: var(--brand); }
+.table tbody tr:nth-child(4n+2) td:first-child { border-left-color: var(--success); }
+.table tbody tr:nth-child(4n+3) td:first-child { border-left-color: var(--purple); }
+.table tbody tr:nth-child(4n+4) td:first-child { border-left-color: var(--amber); }
+.table tbody tr:hover td {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.04));
+  border-color: rgba(59, 130, 246, 0.28);
+  transform: translateY(-1px);
+}
 @keyframes rowSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .table-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
@@ -636,16 +720,30 @@ input[type="file"] { padding: 8px; font-size: 0.85rem; }
    FILTER BAR
    ================================================================== */
 .filter-bar {
+  position: relative;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: center;
   margin-bottom: 20px;
-  background: var(--glass);
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
   border: 1px solid var(--border);
   padding: 14px;
   border-radius: var(--radius-lg);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+.filter-bar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand), var(--purple));
+  opacity: 0.75;
 }
 .filter-bar select, .filter-bar input { max-width: 190px; }
+.filter-bar input[type="text"]:not([style]),
+.filter-bar input:not([type]) { max-width: none; flex: 1; min-width: 220px; }
 
 /* ==================================================================
    TOGGLE

@@ -1,96 +1,37 @@
 # System Design Write-Up
 
-## Rate calculation engine
+## Rate Calculation Engine
 
-The rate engine (`utils/rateCalculator.js`) is a pure orchestration
-function with no hardcoded pricing — every number it uses comes from the
-database, so admins can change pricing without a code change. It runs in
-five steps: resolve pickup/drop zones, compute volumetric weight, take the
-chargeable weight as the higher of actual vs. volumetric, look up the
-matching rate card, and apply COD surcharge if relevant.
+The rate engine lives in a single module (`utils/rateCalculator.js`) and is shared by two endpoints: `calculate-charge` (the pre-confirmation preview) and `create order`. Sharing one function guarantees the price a customer previews is exactly the price they're charged — there's no second implementation to drift out of sync.
 
-Volumetric weight uses the standard courier-industry divisor:
-`(L × B × H) / 5000`, with dimensions in centimeters. Billing on the higher
-of actual vs. volumetric weight is the same rule real logistics providers
-use — it prevents large, light packages (which take up truck space
-disproportionate to their weight) from being underpriced. Chargeable weight
-is exposed to the frontend so customers see the number their charge is
-based on, not just a final total.
+The pipeline runs in five deterministic steps:
 
-The rate card lookup is keyed on three inputs: `orderType` (B2B/B2C),
-whether pickup zone equals drop zone (`intra`) or not (`inter`), and the
-zone pair itself for inter-zone. This keeps B2B and B2C pricing fully
-independent — a common real-world requirement, since B2B shipments are
-often bulkier and lower-margin than B2C. COD surcharge is a separate
-lookup by `orderType`, supporting either a flat fee or a percentage, so
-admins aren't locked into one surcharge model.
+1. **Zone detection** for both pickup and drop addresses.
+2. **Volumetric weight** — `(length × breadth × height) / 5000`, the standard courier-industry formula, with dimensions in centimeters.
+3. **Chargeable weight** — the higher of actual weight vs. volumetric weight. This mirrors real logistics pricing: a large, light package still consumes truck space proportional to its volume, so billing on actual weight alone would underprice it.
+4. **Rate card lookup** — keyed on `orderType` (B2B/B2C), whether the pickup and drop zones are the same (`intra`) or different (`inter`), and the specific zone pair. Keeping B2B and B2C fully separate reflects a real requirement: B2B shipments tend to be bulkier and run on thinner margins than B2C, so they need independent pricing.
+5. **COD surcharge** — a separate lookup by `orderType`, supporting either a flat fee or a percentage of the weight charge, applied only when `paymentType` is COD.
 
-Exposing `calculate-charge` as its own endpoint (separate from order
-creation) was deliberate: it lets the frontend show a price preview before
-commitment, and the same function backs both the preview and the
-actually-billed amount, so they can never drift apart.
+Every number here — base rate, per-kg rate, COD value — comes from the database (`RateCard`/`CODConfig`). Nothing is hardcoded, so admins can change pricing without a deployment. A missing rate card or COD config fails loudly with a specific error instead of silently defaulting to zero.
 
-## Zone detection approach
+## Zone Detection Approach
 
-Zones are modeled as a flat list of pincodes and named areas rather than
-geo-boundaries (polygons/coordinates), which keeps the admin-facing CRUD
-simple — an admin adds a zone by typing in pincodes, no GIS tooling
-required. Zone detection is a lookup: given an address's pincode (falling
-back to area name if the pincode isn't mapped), find the `Zone` document
-whose `pincodes[]`/`areas[]` contains it. This trades geographic precision
-for operational simplicity, appropriate for this assignment's scope. A
-production system handling un-mapped pincodes would likely add a
-nearest-zone-by-geocoding fallback, which could be added later without
-changing the rate engine's interface — it only needs a zone ID in, not the
-detection method.
+Zones are stored as a name plus two matching lists: `pincodes` and `areas`. Detection tries an **exact pincode match** first, since pincodes are unambiguous and don't rely on spelling. If that fails, it falls back to a **case-insensitive match on area name**, which covers addresses where the pincode is missing or the zone was configured by neighborhood rather than pincode. If neither matches, the request is rejected with a message naming exactly what couldn't be resolved (the pincode/area and which address it was), so the customer or admin knows precisely what to fix or ask the admin to configure — rather than failing generically.
 
-## Auto-assignment logic
+This two-tier approach lets admins configure zones the way that's easiest for their operations — by service pincodes, by named localities, or both — without forcing every zone to be defined the same way.
 
-`utils/agentAssigner.js` implements a two-tier ranking: first, prefer
-agents whose `agentDetails.currentZone` matches the order's zone (keeps
-agents working local routes, minimizing travel); if none are available in
-that zone, fall back to any available agent system-wide rather than
-leaving the order unassigned. Among candidates, agents are ranked by
-active-order count (load balancing — don't pile orders onto one agent)
-and then by `lastAssignedAt` (round-robin tie-break, so among equally
-loaded agents the one who's gone longest without a new order gets it
-next). This is a heuristic rather than true route-optimization (no
-travel-time or real-time GPS routing), which is an appropriate scope
-trade-off for this assignment; the interface (`findBestAgent()`) is
-designed so a smarter ranking function could be swapped in later without
-touching the callers (manual/auto-assign routes, reschedule reassignment).
+## Auto-Assignment Logic
 
-## Order status lifecycle + immutable tracking history
+Agent assignment answers "who is the best available agent for this zone right now?" using a layered strategy in `utils/agentAssigner.js`:
 
-Status transitions are enforced by an explicit state machine
-(`utils/statusTransitions.js`) rather than allowing arbitrary status
-writes — `Created → Picked Up → In Transit → Out for Delivery →
-{Delivered | Failed}`, with `Failed → Rescheduled → Picked Up` as the
-recovery path. Centralizing the valid-transition map in one file (instead
-of scattering `if` checks across controllers) means the rules are
-auditable at a glance and can't drift between the order-status endpoint
-and the reschedule endpoint.
+1. **Zone match first** — agents whose `agentDetails.currentZone` matches the target zone (the order's pickup zone for a fresh assignment, or the drop zone when reassigning after a failed delivery) are preferred, since same-zone agents are the closest practical proxy for "nearest" available today.
+2. **Zone fallback** — if no agent is available in that zone, the search widens to *any* available agent system-wide, so an order is never stuck unassigned just because one zone is short-staffed.
+3. **Load-based ranking** — among candidates, agents are ranked first by their current count of non-Delivered orders (ascending — least busy wins), then by `lastAssignedAt` (ascending — longest since their last assignment wins ties). This keeps workload spread evenly instead of piling every new order onto whichever agent happens to sort first.
 
-Every transition writes an append-only `TrackingHistory` document
-(order, status, changedBy, timestamp) rather than only updating
-`Order.status` in place. This is what makes the tracking timeline
-possible and, more importantly, makes the audit trail tamper-resistant:
-nothing ever deletes or edits a past entry, so "who changed what, when"
-is always reconstructable — important for a logistics platform where
-disputes over delivery timing are common.
+The schema also captures `agentDetails.currentLocation` (lat/lng) so true distance-based ranking can be added later without a schema migration — but since addresses in this project don't carry coordinates yet, zone match is used as the nearest-agent proxy for now. This is a deliberate, documented scope boundary rather than an oversight.
 
-## Failed delivery + reschedule handling
+Manual assignment (admin picking an agent directly) and auto-assignment both funnel through the same underlying workload counter, so the two paths never disagree about how busy an agent currently is.
 
-A `Failed` status is not terminal — it's the entry point to a
-customer-initiated recovery flow. The customer submits a new date (and
-optional reason), which the system validates against the state machine
-before touching anything, then atomically updates `Order.reschedule`
-(capturing `previousAgent` before clearing the assignment), transitions
-status to `Rescheduled`, and logs both a `TrackingHistory` entry and a
-`Notification`. Reassignment is a deliberately separate step (manual or
-auto, admin-triggered) rather than automatic, since a failed delivery
-often means the original agent/route was the problem — an admin may want
-to route it differently rather than automatically retrying the same
-assignment logic. Once reassigned, `Rescheduled → Picked Up` re-enters
-the normal lifecycle, so no special-case tracking logic is needed
-downstream.
+## Failed Delivery Handling
+
+A `Failed` status is reachable only from `Out for Delivery`, enforced by a central status-transition map (`utils/statusTransitions.js`) that every status update is checked against — so an order can't be marked Failed from an invalid prior state. On failure, the customer is emailed automatically and can submit a reschedule request with a new delivery date. This moves the order to `Rescheduled`, and the previous agent is recorded so they can be explicitly excluded from reassignment (the same "best available agent" logic runs again for the new attempt, minus that exclusion). Once an agent is reassigned, the order transitions back to `Picked Up` and re-enters the normal lifecycle — so a rescheduled order gets exactly the same tracking rigor as a first attempt, not a special-cased shortcut. Every step of this — the failure, the reschedule request, and the reassignment — writes its own immutable entry to the tracking history, so the full story of what went wrong and how it was recovered stays visible on the order's timeline permanently.
