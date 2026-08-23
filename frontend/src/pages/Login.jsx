@@ -198,7 +198,7 @@ export default function Login() {
               {loading ? 'Logging in…' : 'Log in'}
             </button>
 
-            {selectedRole === 'customer' && (
+            {(selectedRole === 'customer' || selectedRole === 'agent') && (
               <>
                 <div className="muted center" style={{ margin: '8px 0' }}>or</div>
                 <GoogleSignInButton onCredential={handleGoogleCredential} onError={setError} />
