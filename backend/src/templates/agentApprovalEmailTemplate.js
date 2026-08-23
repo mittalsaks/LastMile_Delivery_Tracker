@@ -4,7 +4,9 @@
 
 function buildAgentApprovalRequestEmail({ agentName, agentEmail, agentPhone }) {
   const baseUrl = process.env.CLIENT_ORIGIN || "http://localhost:5173";
-  const approvalsUrl = `${baseUrl}/admin/agent-approvals`;
+  // Must match the actual route in frontend/src/App.jsx — it's
+  // "/admin/agents/pending" (AdminAgentApprovals), not "/admin/agent-approvals".
+  const approvalsUrl = `${baseUrl}/admin/agents/pending`;
 
   const subject = `New agent approval request — ${agentName}`;
 
