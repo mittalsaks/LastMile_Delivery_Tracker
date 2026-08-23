@@ -1,41 +1,50 @@
 // templates/statusEmailTemplate.js
 // Simple inline HTML email template — no external template engine needed.
 
+const { renderEmailShell, COLORS } = require('./emailLayout');
+
 const STATUS_COPY = {
   Created: {
     subject: 'Order Received',
     heading: 'We\u2019ve received your order',
     body: 'Your order has been created and is being processed.',
+    badgeColor: COLORS.brand,
   },
   'Picked Up': {
     subject: 'Order Picked Up',
     heading: 'Your package is on the move',
     body: 'Your order has been picked up by our delivery agent.',
+    badgeColor: COLORS.brand,
   },
   'In Transit': {
     subject: 'Order In Transit',
     heading: 'Your package is in transit',
     body: 'Your order is on its way to the destination hub.',
+    badgeColor: '#a78bfa',
   },
   'Out for Delivery': {
     subject: 'Out for Delivery',
     heading: 'Arriving soon',
     body: 'Your order is out for delivery and should arrive shortly.',
+    badgeColor: '#fbbf24',
   },
   Delivered: {
     subject: 'Order Delivered',
     heading: 'Delivered!',
     body: 'Your order has been delivered successfully. Thank you for choosing us.',
+    badgeColor: COLORS.success,
   },
   Failed: {
     subject: 'Delivery Attempt Failed',
     heading: 'We couldn\u2019t deliver your order',
     body: 'Our agent was unable to complete delivery. You can request a reschedule from your dashboard.',
+    badgeColor: COLORS.danger,
   },
   Rescheduled: {
     subject: 'Delivery Rescheduled',
     heading: 'Your delivery has been rescheduled',
     body: 'A new delivery attempt has been scheduled. We\u2019ll notify you as it progresses.',
+    badgeColor: '#a78bfa',
   },
 };
 
@@ -51,6 +60,7 @@ function buildStatusEmail({ orderId, status, trackingUrl }) {
     subject: 'Order Update',
     heading: 'Your order status has changed',
     body: `Your order status is now "${status}".`,
+    badgeColor: COLORS.brand,
   };
 
   // Strip any trailing slash(es) from CLIENT_ORIGIN. If the env var on
@@ -66,23 +76,27 @@ function buildStatusEmail({ orderId, status, trackingUrl }) {
   const baseUrl = (process.env.CLIENT_ORIGIN || "http://localhost:5173").replace(/\/+$/, "");
   const link = trackingUrl || `${baseUrl}/customer/orders/${orderId}/tracking`;
 
-  const html = `
-  <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #eee; border-radius: 8px;">
-    <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 16px;">
-      LastMile Tracker
-    </p>
-    <h2 style="color: #1a1a1a; margin-bottom: 4px;">${copy.heading}</h2>
-    <p style="color: #555; font-size: 14px; margin-top: 0;">Order ID: <strong>${orderId}</strong></p>
-    <p style="color: #333; font-size: 15px; line-height: 1.5;">${copy.body}</p>
-    <p style="margin-top: 24px;">
-      <a href="${link}" style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-size:14px;">
-        Track your order
-      </a>
-    </p>
-    <p style="color: #999; font-size: 12px; margin-top: 32px;">
-      Last-Mile Delivery Tracker — automated notification, please do not reply.
-    </p>
-  </div>`;
+  const bodyHtml = `
+    <span style="display:inline-block; background-color:${copy.badgeColor}22; color:${copy.badgeColor}; border:1px solid ${copy.badgeColor}55; border-radius:999px; padding:4px 12px; font-size:11px; font-weight:700; letter-spacing:0.03em; text-transform:uppercase; margin-bottom:14px;">
+      ${status}
+    </span>
+    <h2 style="color:#ffffff; font-size:20px; margin:0 0 6px; font-family:Arial, Helvetica, sans-serif;">${copy.heading}</h2>
+    <p style="color:${COLORS.textMuted}; font-size:13px; margin:0 0 14px;">Order ID: <strong style="color:${COLORS.text};">${orderId}</strong></p>
+    <p style="color:${COLORS.text}; font-size:14px; line-height:1.6; margin:0 0 22px;">${copy.body}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="border-radius:8px; background:linear-gradient(135deg, ${COLORS.brand}, ${COLORS.brandDark});">
+          <a href="${link}" style="display:inline-block; padding:11px 20px; color:#ffffff; text-decoration:none; font-size:14px; font-weight:700; font-family:Arial, Helvetica, sans-serif;">
+            Track your order
+          </a>
+        </td>
+      </tr>
+    </table>`;
+
+  const html = renderEmailShell({
+    bodyHtml,
+    accent: `linear-gradient(90deg, ${COLORS.brand}, ${copy.badgeColor})`,
+  });
 
   return { subject: `${copy.subject} — Order ${orderId}`, html };
 }
