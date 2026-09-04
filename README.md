@@ -10,7 +10,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](#-tech-stack)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](#-tech-stack)
 
-[**🚀 Live App**](https://lastmile-frontend-iaj4.onrender.com) · [**🔗 API**](https://lastmile-backend-bpts.onrender.com) · [System Design Write-up](./SYSTEM_DESIGN.md)
+[**🚀 Live App**](https://lastmile-frontend-iaj4.onrender.com)  · [System Design Write-up](./SYSTEM_DESIGN.md)
 
 </div>
 
